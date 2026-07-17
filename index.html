@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<style>
+  :root {
+    --panel: #ffffff;
+    --line: #dedede;
+    --text: #202020;
+    --muted: #6b6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    overflow: hidden;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text);
+    background: transparent;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 14px;
+  }
+  .label {
+    font-size: 14px;
+    font-weight: 650;
+    margin-bottom: 8px;
+  }
+  .palette-shell {
+    position: relative;
+    width: 100%;
+    height: 72px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(0,0,0,.18);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: crosshair;
+  }
+  #palette {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+  #marker {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 2px 7px rgba(0,0,0,.35);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    left: 50%;
+    top: 50%;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .hexbox {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+  #swatch {
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
+    border: 1px solid rgba(0,0,0,.2);
+    flex: 0 0 auto;
+  }
+  #hex {
+    font: 650 17px ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    padding: 10px 12px;
+    width: 140px;
+    background: #fff;
+  }
+  button {
+    appearance: none;
+    border: 0;
+    border-radius: 12px;
+    padding: 12px 15px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .secondary { background: #eeeeee; color: #222; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 7px; line-height: 1.35; }
+  @media (max-width: 520px) {
+    .card { border-radius: 15px; padding: 11px; }
+    .palette-shell { height: 82px; }
+    .row { grid-template-columns: 1fr; }
+    .secondary { width: 100%; }
+    #hex { width: 100%; }
+    .hexbox { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="label">Slide across the bar with your finger, Apple Pencil, or mouse</div>
+  <div class="palette-shell" id="paletteShell">
+    <canvas id="palette"></canvas>
+    <div id="marker"></div>
+  </div>
+
+  <div class="row">
+    <div class="hexbox">
+      <div id="swatch"></div>
+      <input id="hex" type="text" value="#D8C4B6" maxlength="7" spellcheck="false" aria-label="HEX color" />
+    </div>
+    <button class="secondary" id="copyBtn" type="button">Copy HEX</button>
+  </div>
+  <div class="hint">The pattern preview updates as soon as you let go.</div>
+</div>
+
+<script>
+(() => {
+  // --- Raw Streamlit component protocol (no build step / no npm package) ---
+  function sendToStreamlit(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data), "*");
+  }
+  function notifyHeight() {
+    sendToStreamlit("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight });
+  }
+  function sendValue(hex) {
+    sendToStreamlit("streamlit:setComponentValue", { value: hex, dataType: "json" });
+  }
+
+  const paletteShell = document.getElementById('paletteShell');
+  const palette = document.getElementById('palette');
+  const marker = document.getElementById('marker');
+  const hexInput = document.getElementById('hex');
+  const swatch = document.getElementById('swatch');
+  const copyBtn = document.getElementById('copyBtn');
+
+  let bgColor = '#D8C4B6';
+  let activePointer = null;
+
+  function normalizeHex(value) {
+    let v = value.trim().toUpperCase();
+    if (!v.startsWith('#')) v = '#' + v;
+    if (/^#[0-9A-F]{6}$/.test(v)) return v;
+    if (/^#[0-9A-F]{3}$/.test(v)) {
+      return '#' + v.slice(1).split('').map(c => c + c).join('');
+    }
+    return null;
+  }
+
+  function rgbToHex(r, g, b) {
+    return '#' + [r,g,b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2,'0')).join('').toUpperCase();
+  }
+
+  function hexToRgb(hex) {
+    const clean = hex.replace('#', '');
+    return [
+      parseInt(clean.substring(0,2), 16),
+      parseInt(clean.substring(2,4), 16),
+      parseInt(clean.substring(4,6), 16),
+    ];
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    let h, s, l = (max+min)/2;
+    if (max === min) { h = s = 0; }
+    else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g-b)/d + (g < b ? 6 : 0); break;
+        case g: h = (b-r)/d + 2; break;
+        default: h = (r-g)/d + 4;
+      }
+      h *= 60;
+    }
+    return [h, s*100, l*100];
+  }
+
+  function hslToRgb(h, s, l) {
+    h /= 360; s /= 100; l /= 100;
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q-p)*6*t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q-p)*(2/3-t)*6;
+        return p;
+      };
+      const q = l < 0.5 ? l*(1+s) : l+s-l*s;
+      const p = 2*l-q;
+      r = hue2rgb(p,q,h+1/3);
+      g = hue2rgb(p,q,h);
+      b = hue2rgb(p,q,h-1/3);
+    }
+    return [r*255,g*255,b*255];
+  }
+
+  function drawPalette() {
+    const rect = paletteShell.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    palette.width = Math.round(rect.width * dpr);
+    palette.height = Math.round(rect.height * dpr);
+    palette.style.width = rect.width + 'px';
+    palette.style.height = rect.height + 'px';
+    const ctx = palette.getContext('2d');
+    const img = ctx.createImageData(palette.width, palette.height);
+
+    for (let y = 0; y < palette.height; y++) {
+      const yn = y / Math.max(1, palette.height - 1);
+      const lightness = 96 - yn * 76;
+      const saturation = 18 + Math.sin(Math.PI * yn) * 82;
+      for (let x = 0; x < palette.width; x++) {
+        const hue = (x / Math.max(1, palette.width - 1)) * 360;
+        const [r,g,b] = hslToRgb(hue, saturation, lightness);
+        const i = (y * palette.width + x) * 4;
+        img.data[i] = r;
+        img.data[i+1] = g;
+        img.data[i+2] = b;
+        img.data[i+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // Places the marker to best match a hex color against the palette curve
+  // (used only to restore position when the component reloads).
+  function placeMarkerForHex(hex) {
+    const [r,g,b] = hexToRgb(hex);
+    const [h, , l] = rgbToHsl(r,g,b);
+    const rect = paletteShell.getBoundingClientRect();
+    const x = (h / 360) * rect.width;
+    const yn = Math.max(0, Math.min(1, (96 - l) / 76));
+    const y = yn * rect.height;
+    marker.style.left = x + 'px';
+    marker.style.top = y + 'px';
+  }
+
+  function setColor(hex, updateInput=true, commit=false) {
+    bgColor = hex.toUpperCase();
+    swatch.style.background = bgColor;
+    if (updateInput) hexInput.value = bgColor;
+    if (commit) sendValue(bgColor);
+  }
+
+  function pickFromPointer(e, commit) {
+    const rect = paletteShell.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    marker.style.left = x + 'px';
+    marker.style.top = y + 'px';
+
+    const hue = (x / Math.max(1, rect.width)) * 360;
+    const yn = y / Math.max(1, rect.height);
+    const lightness = 96 - yn * 76;
+    const saturation = 18 + Math.sin(Math.PI * yn) * 82;
+    const [r,g,b] = hslToRgb(hue, saturation, lightness);
+    setColor(rgbToHex(r,g,b), true, commit);
+  }
+
+  // Live-drag: only updates the swatch/hex shown inside the component.
+  // The pattern preview in the main app only recomputes once we commit
+  // (on release) - dragging itself stays perfectly smooth either way.
+  paletteShell.addEventListener('pointerdown', e => {
+    activePointer = e.pointerId;
+    paletteShell.setPointerCapture(e.pointerId);
+    pickFromPointer(e, false);
+    e.preventDefault();
+  });
+  paletteShell.addEventListener('pointermove', e => {
+    if (activePointer === e.pointerId) {
+      pickFromPointer(e, false);
+      e.preventDefault();
+    }
+  });
+  const endPointer = e => {
+    if (activePointer === e.pointerId) {
+      activePointer = null;
+      pickFromPointer(e, true);
+    }
+  };
+  paletteShell.addEventListener('pointerup', endPointer);
+  paletteShell.addEventListener('pointercancel', endPointer);
+
+  hexInput.addEventListener('input', () => {
+    const hex = normalizeHex(hexInput.value);
+    if (hex) setColor(hex, false, false);
+  });
+  hexInput.addEventListener('blur', () => {
+    const hex = normalizeHex(hexInput.value);
+    hexInput.value = hex || bgColor;
+    if (hex) {
+      setColor(hex, true, true);
+      placeMarkerForHex(hex);
+    }
+  });
+  hexInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') hexInput.blur();
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(bgColor);
+      copyBtn.textContent = 'Copied ✓';
+      setTimeout(() => copyBtn.textContent = 'Copy HEX', 1200);
+    } catch {
+      hexInput.select();
+      document.execCommand('copy');
+    }
+  });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { drawPalette(); notifyHeight(); }, 100);
+  });
+  const ro = new ResizeObserver(() => drawPalette());
+  ro.observe(paletteShell);
+
+  // --- Streamlit render/init handshake ---
+  window.addEventListener('message', event => {
+    const msg = event.data;
+    if (!msg || msg.type !== 'streamlit:render') return;
+    const defaultHex = normalizeHex((msg.args && msg.args.default) || '#D8C4B6') || '#D8C4B6';
+    // Only re-sync from Python on first render, so we don't fight the user
+    // mid-drag on subsequent reruns triggered by other widgets in the app.
+    if (!window.__initialized) {
+      window.__initialized = true;
+      setColor(defaultHex, true, false);
+      drawPalette();
+      requestAnimationFrame(() => {
+        placeMarkerForHex(defaultHex);
+        notifyHeight();
+      });
+    }
+  });
+
+  drawPalette();
+  setColor(bgColor, true, false);
+  sendToStreamlit('streamlit:componentReady', { apiVersion: 1 });
+  requestAnimationFrame(notifyHeight);
+})();
+</script>
+</body>
+</html>
