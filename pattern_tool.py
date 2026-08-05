@@ -10067,24 +10067,31 @@ n_main = len(template["main"])
 n_sec = len(template["secondary"])
 n_total = template.get("motif_count", n_main + n_sec)
 
-canvas_choice = st.radio(
-    "Canvas size",
-    options=[
-        "2000×2000 px (standard)",
-        "3000×3000 px (high detail)",
-        "4000×4000 px (maximum detail)",
-    ],
+EXPORT_SIZES = {
+    "2000×2000 px — Standard": 2000,
+    "3000×3000 px — High detail": 3000,
+    "4000×4000 px — Professional": 4000,
+    "5000×5000 px — Large print": 5000,
+    "6000×6000 px — Maximum detail": 6000,
+}
+
+canvas_choice = st.selectbox(
+    "Export size",
+    options=list(EXPORT_SIZES.keys()),
     index=2,
-    horizontal=True,
-    help="Higher resolution keeps small motifs visibly sharper while preserving the exact same seamless layout and proportions.",
+    help=(
+        "Every template is calibrated on a 2000×2000 base tile. "
+        "The app scales all template positions, motif widths and seamless edge wrapping "
+        "proportionally, so the design remains identical at every export size."
+    ),
 )
-if "4000" in canvas_choice:
-    scale_factor = 2.0
-elif "3000" in canvas_choice:
-    scale_factor = 1.5
-else:
-    scale_factor = 1.0
-canvas_size = int(CANVAS_SIZE * scale_factor)
+canvas_size = EXPORT_SIZES[canvas_choice]
+scale_factor = canvas_size / CANVAS_SIZE
+
+st.caption(
+    f"Template scale: {scale_factor:.1f}× · "
+    f"All positions and motif sizes scale automatically to {canvas_size}×{canvas_size} px."
+)
 
 st.divider()
 
