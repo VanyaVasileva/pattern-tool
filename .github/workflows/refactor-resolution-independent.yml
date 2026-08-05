@@ -1,103 +1,71 @@
-name: Refactor resolution-independent templates
+name: Add five scalable export sizes
 
-on:
+"on":
   push:
-    paths:
-      - '.github/workflows/refactor-resolution-independent.yml'
 
 permissions:
   contents: write
 
 jobs:
-  refactor:
+  update-app:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Refactor scaling foundation
+      - name: Add five export sizes
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
-          path = Path('pattern_tool.py')
-          text = path.read_text(encoding='utf-8')
+          path = Path("pattern_tool.py")
+          text = path.read_text(encoding="utf-8")
 
-          # 1. Make the 2000px master coordinate system explicit.
-          text = text.replace(
-              'CANVAS_SIZE = 2000\nDPI = 300',
-              'BASE_TEMPLATE_SIZE = 2000\nCANVAS_SIZE = BASE_TEMPLATE_SIZE\nPREVIEW_CANVAS_SIZE = 1200\nDPI = 300',
-              1,
+          pattern = re.compile(
+              r'canvas_choice = st\.(?:radio|selectbox)\(\n'
+              r'.*?canvas_size = int\(CANVAS_SIZE \* scale_factor\)',
+              re.DOTALL,
           )
 
-          # 2. Add one reusable scaling function for every template slot.
-          anchor = 'def place_motif_on_canvas(canvas, motif, slot, canvas_size=CANVAS_SIZE):\n'
-          helper = '''def scale_template_slot(slot, output_size, base_size=BASE_TEMPLATE_SIZE):
-              """Scale one template slot from the 2000px master grid to any square output size.
+          replacement = """EXPORT_SIZES = {
+              \"2000×2000 px — Standard\": 2000,
+              \"3000×3000 px — High detail\": 3000,
+              \"4000×4000 px — Professional\": 4000,
+              \"5000×5000 px — Large print\": 5000,
+              \"6000×6000 px — Maximum detail\": 6000,
+          }
 
-              Template data always stays in one stable coordinate system. Position, width,
-              edge crossings and seamless wrapping all scale by the same factor.
-              """
-              factor = float(output_size) / float(base_size)
-              scaled = dict(slot)
-              scaled["x"] = int(round(float(slot["x"]) * factor))
-              scaled["y"] = int(round(float(slot["y"]) * factor))
-              scaled["width"] = max(1, int(round(float(slot["width"]) * factor)))
-              return scaled
-
-
-'''
-          if 'def scale_template_slot(' not in text:
-              if anchor not in text:
-                  raise SystemExit('place_motif_on_canvas anchor not found')
-              text = text.replace(anchor, helper + anchor, 1)
-
-          # 3. Use the single source of truth for the selected output scale.
-          text = text.replace(
-              'scale_factor = canvas_size / CANVAS_SIZE',
-              'scale_factor = canvas_size / BASE_TEMPLATE_SIZE',
-              1,
+          canvas_choice = st.selectbox(
+              \"Export size\",
+              options=list(EXPORT_SIZES.keys()),
+              index=2,
+              help=(
+                  \"All templates use the same 2000×2000 master layout. \"
+                  \"Positions, motif widths and seamless wrapping scale automatically.\"
+              ),
           )
+          canvas_size = EXPORT_SIZES[canvas_choice]
+          scale_factor = canvas_size / CANVAS_SIZE"""
 
-          # 4. Replace manual per-field scaling with the reusable helper.
-          old_slot = '''        scaled_slot = {
-              "x": int(slot["x"] * scale_factor),
-              "y": int(slot["y"] * scale_factor),
-              "width": int(slot["width"] * scale_factor),
-              "rotation": slot["rotation"] + slot_rotation,
-              "flip": slot_flips.get(slot["id"], slot.get("flip", False)),
-              "flip_after_rotation": slot.get("flip_after_rotation", False),
-          }'''
-          new_slot = '''        scaled_slot = scale_template_slot(slot, canvas_size)
-          scaled_slot["rotation"] = slot["rotation"] + slot_rotation
-          scaled_slot["flip"] = slot_flips.get(slot["id"], slot.get("flip", False))
-          scaled_slot["flip_after_rotation"] = slot.get("flip_after_rotation", False)'''
-          if old_slot not in text:
-              raise SystemExit('manual scaled_slot block not found')
-          text = text.replace(old_slot, new_slot, 1)
+          updated, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit("Could not find the current canvas-size selector.")
 
-          # 5. Keep template diagrams tied to the master coordinate system.
-          text = text.replace('scale = size / CANVAS_SIZE', 'scale = size / BASE_TEMPLATE_SIZE')
-
-          # 6. Update explanatory UI copy.
-          text = text.replace(
-              '"Every template is calibrated on a 2000×2000 base tile. "',
-              '"Every template uses one resolution-independent 2000×2000 master grid. "',
-              1,
-          )
-
-          path.write_text(text, encoding='utf-8')
+          path.write_text(updated, encoding="utf-8")
           PY
 
-      - name: Validate syntax
+      - name: Validate app
         run: python -m py_compile pattern_tool.py
 
-      - name: Commit refactor and remove temporary workflow
+      - name: Commit app update
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/refactor-resolution-independent.yml
           git add pattern_tool.py
-          git commit -m "Refactor templates to one scalable coordinate system"
+          git commit -m "Add five scalable export sizes"
           git push origin main
