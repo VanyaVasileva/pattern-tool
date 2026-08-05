@@ -10057,13 +10057,25 @@ n_main = len(template["main"])
 n_sec = len(template["secondary"])
 n_total = template.get("motif_count", n_main + n_sec)
 
-canvas_choice = st.radio(
-    "Canvas size",
-    options=["2000×2000 px (motifs ~3cm)", "3000×3000 px (motifs ~5cm)"],
-    horizontal=True,
+EXPORT_SIZES = {
+    "2000×2000 px — Standard": 2000,
+    "3000×3000 px — High detail": 3000,
+    "4000×4000 px — Professional": 4000,
+    "5000×5000 px — Large print": 5000,
+    "6000×6000 px — Maximum detail": 6000,
+}
+
+canvas_choice = st.selectbox(
+    "Export size",
+    options=list(EXPORT_SIZES.keys()),
+    index=2,
+    help=(
+        "All templates use the same 2000×2000 master layout. "
+        "Positions, motif widths and seamless wrapping scale automatically."
+    ),
 )
-scale_factor = 1.0 if "2000" in canvas_choice else 1.5
-canvas_size = int(CANVAS_SIZE * scale_factor)
+canvas_size = EXPORT_SIZES[canvas_choice]
+scale_factor = canvas_size / CANVAS_SIZE
 
 st.divider()
 
