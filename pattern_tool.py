@@ -605,14 +605,24 @@ def place_motif_on_canvas(canvas, motif, slot, canvas_size=CANVAS_SIZE):
     # rotating (the two operations commute), so template calibration is
     # unaffected.
     if slot.get("flip_after_rotation", False):
-        rotated_full = rotate_alpha_safe(motif, slot["rotation"], resample=Image.Resampling.BICUBIC)
+        rotated_full = rotate_alpha_safe(
+    motif,
+    slot["rotation"],
+    resample=Image.Resampling.BICUBIC,
+    suppress_ringing=suppress_ringing,
+)
         if slot.get("flip"):
             rotated_full = rotated_full.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     else:
         working = motif
         if slot.get("flip"):
             working = working.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        rotated_full = rotate_alpha_safe(working, slot["rotation"], resample=Image.Resampling.BICUBIC)
+        rotated_full = rotate_alpha_safe(
+    working,
+    slot["rotation"],
+    resample=Image.Resampling.BICUBIC,
+    suppress_ringing=suppress_ringing,
+)
 
     final_w = max(1, round(rotated_full.width * scale))
     final_h = max(1, round(rotated_full.height * scale))
