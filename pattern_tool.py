@@ -10069,10 +10069,21 @@ n_total = template.get("motif_count", n_main + n_sec)
 
 canvas_choice = st.radio(
     "Canvas size",
-    options=["2000×2000 px (motifs ~3cm)", "3000×3000 px (motifs ~5cm)"],
+    options=[
+        "2000×2000 px (standard)",
+        "3000×3000 px (high detail)",
+        "4000×4000 px (maximum detail)",
+    ],
+    index=2,
     horizontal=True,
+    help="Higher resolution keeps small motifs visibly sharper while preserving the exact same seamless layout and proportions.",
 )
-scale_factor = 1.0 if "2000" in canvas_choice else 1.5
+if "4000" in canvas_choice:
+    scale_factor = 2.0
+elif "3000" in canvas_choice:
+    scale_factor = 1.5
+else:
+    scale_factor = 1.0
 canvas_size = int(CANVAS_SIZE * scale_factor)
 
 st.divider()
