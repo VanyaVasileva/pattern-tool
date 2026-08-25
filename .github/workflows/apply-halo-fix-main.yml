@@ -1,5 +1,6 @@
 name: Apply halo-free export repair
 
+# Retry after widening duplicate-safe patch matching.
 on:
   push:
     branches:
