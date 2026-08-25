@@ -1,0 +1,71 @@
+name: Apply halo-free export repair
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-halo-fix-main.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install app dependencies
+        run: pip install -r requirements.txt
+
+      - name: Patch both Pattern Studio apps
+        run: python .github/scripts/apply_halo_fix.py
+
+      - name: Compile both apps
+        run: python -m py_compile pattern_tool.py pattern_tool_customer.py
+
+      - name: Verify alpha behavior
+        run: |
+          python - <<'PY'
+          from io import BytesIO
+          from PIL import Image
+
+          src = Image.new('RGBA', (2, 1), (100, 150, 200, 0))
+          src.putpixel((0, 0), (100, 150, 200, 128))
+          src.putpixel((1, 0), (10, 20, 30, 255))
+
+          transparent = Image.new('RGBA', (2, 1), (0, 0, 0, 0))
+          transparent.alpha_composite(src)
+          assert transparent.getpixel((0, 0))[3] == 128
+
+          opaque = Image.new('RGBA', (2, 1), (255, 255, 255, 255))
+          opaque.alpha_composite(src)
+          assert opaque.getchannel('A').getextrema() == (255, 255)
+
+          buf = BytesIO()
+          opaque.convert('RGB').save(buf, format='TIFF', compression='tiff_lzw', dpi=(300, 300))
+          buf.seek(0)
+          reopened = Image.open(buf)
+          assert reopened.mode == 'RGB'
+          assert tuple(round(x) for x in reopened.info.get('dpi', (0, 0))) == (300, 300)
+          print('Halo-safe alpha/TIFF checks passed')
+          PY
+
+      - name: Commit repaired apps and remove one-time repair files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pattern_tool.py pattern_tool_customer.py
+          git rm .github/scripts/apply_halo_fix.py .github/workflows/apply-halo-fix-main.yml
+          git commit -m 'Fix halo artifacts across all pattern exports'
+          git push origin main
