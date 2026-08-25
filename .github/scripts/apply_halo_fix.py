@@ -19,16 +19,19 @@ NEW_PNG_HELPER = '''def pil_image_to_png_bytes(img: Image.Image, dpi: int = 300)
 def patch(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     original = text
+
     for old, new, label in REPLACEMENTS:
         count = text.count(old)
-        if count != 1:
-            raise RuntimeError(f"{path}: expected exactly 1 occurrence for {label}, found {count}")
-        text = text.replace(old, new, 1)
+        if count < 1:
+            raise RuntimeError(f"{path}: expected at least 1 occurrence for {label}, found {count}")
+        text = text.replace(old, new)
+        print(f"{path}: replaced {count} occurrence(s) for {label}")
 
     helper_count = text.count(OLD_PNG_HELPER)
-    if helper_count != 1:
-        raise RuntimeError(f"{path}: expected exactly 1 PNG helper, found {helper_count}")
-    text = text.replace(OLD_PNG_HELPER, NEW_PNG_HELPER, 1)
+    if helper_count < 1:
+        raise RuntimeError(f"{path}: expected at least 1 PNG helper, found {helper_count}")
+    text = text.replace(OLD_PNG_HELPER, NEW_PNG_HELPER)
+    print(f"{path}: replaced {helper_count} PNG helper(s)")
 
     forbidden = [
         'bg.paste(canvas, (0, 0), canvas)',
