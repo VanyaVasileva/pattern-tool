@@ -649,7 +649,7 @@ def render_template_schematic(template, sample_motif, size=260, canvas_size=CANV
     for slot in template["main"] + template["secondary"]:
         canvas = place_motif_on_canvas(canvas, sample_motif, slot, canvas_size)
     bg = Image.new("RGBA", canvas.size, (250, 250, 250, 255))
-    bg.paste(canvas, (0, 0), canvas)
+    bg.alpha_composite(canvas)
     return bg.resize((size, size), Image.Resampling.LANCZOS)
 
 
@@ -692,7 +692,7 @@ def get_ui_font(size: int, serif: bool = False):
 
 def _flatten_on_bg(img: Image.Image, bg_rgb=(248, 248, 246)) -> Image.Image:
     base = Image.new("RGBA", img.size, (*bg_rgb, 255))
-    base.paste(img, (0, 0), img)
+    base.alpha_composite(img.convert("RGBA"))
     return base
 
 
@@ -9915,7 +9915,7 @@ def build_4000_repeat_from_tile(tile_img: Image.Image, tile_target_px: int = 200
     repeated = Image.new("RGBA", (tile_target_px * 2, tile_target_px * 2), (0, 0, 0, 0))
     for i in range(2):
         for j in range(2):
-            repeated.paste(tile, (i * tile_target_px, j * tile_target_px), tile)
+            repeated.alpha_composite(tile, (i * tile_target_px, j * tile_target_px))
     return repeated
 
 
@@ -9974,7 +9974,13 @@ def pil_image_to_jpeg_bytes(img: Image.Image, dpi: int = 300, quality: int = 95)
 
 def pil_image_to_png_bytes(img: Image.Image, dpi: int = 300) -> bytes:
     buf = io.BytesIO()
-    img.save(buf, format="PNG", dpi=(dpi, dpi), icc_profile=SRGB_ICC_PROFILE)
+    save_img = img
+    # Opaque listing/repeat previews do not need an alpha channel. Saving them
+    # as true RGB avoids Apple Quick Look/iCloud preview artifacts, while
+    # genuinely transparent PNGs keep their alpha exactly as before.
+    if img.mode == "RGBA" and img.getchannel("A").getextrema() == (255, 255):
+        save_img = img.convert("RGB")
+    save_img.save(buf, format="PNG", dpi=(dpi, dpi), icc_profile=SRGB_ICC_PROFILE)
     return buf.getvalue()
 
 
@@ -10841,13 +10847,13 @@ if all_motifs:
                 st.warning("Enter a valid hex code, e.g. #F5F5F5 — using default gray for now.")
                 bg_rgb = (245, 245, 245)
             export_canvas = Image.new("RGBA", canvas.size, (*bg_rgb, 255))
-            export_canvas.paste(canvas, (0, 0), canvas)
+            export_canvas.alpha_composite(canvas)
         else:
             bg_rgb = (250, 250, 250)
             export_canvas = canvas
 
         preview_bg = Image.new("RGBA", canvas.size, (*bg_rgb, 255))
-        preview_bg.paste(canvas, (0, 0), canvas)
+        preview_bg.alpha_composite(canvas)
         # Server-side sharp downscale for on-screen display — large enough to look genuinely sharp
         display_size = min(1600, preview_bg.width)
         display_preview = preview_bg.resize(
@@ -10887,7 +10893,7 @@ if all_motifs:
             )
 
             tiff_buf = io.BytesIO()
-            export_canvas.save(
+            export_canvas.convert("RGB").save(
                 tiff_buf,
                 format="TIFF",
                 compression="tiff_lzw",
