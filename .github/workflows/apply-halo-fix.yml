@@ -1,0 +1,72 @@
+name: Apply halo-free export fix
+
+on:
+  push:
+    branches:
+      - fix/halo-free-exports
+    paths:
+      - .github/workflows/apply-halo-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/halo-free-exports
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install app dependencies
+        run: pip install -r requirements.txt
+
+      - name: Apply halo-safe export patch
+        run: python .github/scripts/apply_halo_fix.py
+
+      - name: Compile both apps
+        run: python -m py_compile pattern_tool.py pattern_tool_customer.py
+
+      - name: Verify alpha compositing behavior
+        run: |
+          python - <<'PY'
+          from io import BytesIO
+          from PIL import Image
+
+          src = Image.new('RGBA', (2, 1), (100, 150, 200, 0))
+          src.putpixel((0, 0), (100, 150, 200, 128))
+          src.putpixel((1, 0), (10, 20, 30, 255))
+
+          transparent = Image.new('RGBA', (2, 1), (0, 0, 0, 0))
+          transparent.alpha_composite(src)
+          assert transparent.getpixel((0, 0))[3] == 128
+
+          opaque = Image.new('RGBA', (2, 1), (255, 255, 255, 255))
+          opaque.alpha_composite(src)
+          assert opaque.getchannel('A').getextrema() == (255, 255)
+
+          buf = BytesIO()
+          opaque.convert('RGB').save(buf, format='TIFF', compression='tiff_lzw', dpi=(300, 300))
+          buf.seek(0)
+          assert Image.open(buf).mode == 'RGB'
+          print('Alpha compositing checks passed')
+          PY
+
+      - name: Commit patched apps
+        run: |
+          if git diff --quiet -- pattern_tool.py pattern_tool_customer.py; then
+            echo 'No app changes detected'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pattern_tool.py pattern_tool_customer.py
+          git commit -m 'Fix halo artifacts across pattern exports'
+          git push origin fix/halo-free-exports
